@@ -1,92 +1,89 @@
 from kivymd.app import MDApp
 from kivy.lang import Builder
-from kivy.utils import platform
-from kivy.clock import Clock
-from kivy.core.clipboard import Clipboard
-from kivymd.toast import toast
+from kivymd.uix.card import MDCard
+from kivymd.uix.label import MDLabel
+from kivy.animation import Animation
+from kivymd.toast.kivytoast.kivytoast import toast
 
-# Global variables
-InterstitialAd = None
-AdRequest = None
-MobileAds = None
-_interstitial_ad = None
-TEST_ID = "ca-app-pub-3940256099942544/1033173712"
+KV = '''
+Screen:
+    BoxLayout:
+        orientation: "vertical"
 
-class MainApp(MDApp):
+        ScrollView:
+            id: s1
+            GridLayout:
+                id: b1
+                cols: 2
+                adaptive_height: True
+                size_hint_y: None
+                height: self.minimum_height
+                spacing: 10
+                padding: 30
+
+        MDTopAppBar:
+            title: "Grid ScrollView Example"
+            elevation: 4
+            pos_hint: {'center_y': 1}
+'''
+
+class GridCardApp(MDApp):
     def build(self):
-        self.count = 0
-        return Builder.load_string('''
-MDScreen:
-    MDFloatLayout:
-        md_bg_color: 1, 1, 1, 1
-        MDRaisedButton:
-            text: "SHOW INTERSTITIAL"
-            pos_hint: {"center_x": .5, "center_y": .5}
-            on_release: app.handle_click()
-        MDLabel:
-            id: counter
-            text: "Clicks: 0"
-            halign: "center"
-            pos_hint: {"center_y": .4}
-''')
+        self.title = "Scroll Grid App"
+        self.theme_cls.primary_palette = "Teal"
+        return Builder.load_string(KV)
 
     def on_start(self):
-        if platform == "android":
-            # 2 second baad load karein taaki app stable ho jaye
-            Clock.schedule_once(self.setup_ads, 2)
+        grid = self.root.ids.b1
+        for i in range(1, 21):
+            card = MDCard(
+                size_hint=(1, None),
+                height="120dp",
+                padding="16dp",
+                orientation="vertical",
+                ripple_behavior=True,
+                on_press=self.show_popup
+            )
+            label = MDLabel(
+                text=f"Card {i}",
+                halign="center",
+                theme_text_color="Primary",
+                font_style="H6"
+            )
+            card.add_widget(label)
+            grid.add_widget(card)
 
-    def setup_ads(self, dt):
-        global InterstitialAd, AdRequest, MobileAds, MyAdListener
-        try:
-            from jnius import autoclass, PythonJavaClass, java_method
-            from android.runnable import run_on_ui_thread
+    def show_popup(self, *args):
+        # Check if popup already exists
+        if hasattr(self, 'm') and self.m and self.m.parent:
+            #self.m.add_widget(MDLabel(text=f'{self.m.parent} = {self.m}={hasattr(self,"m")} ')) # prevent multiple popups
+            toast('already one')
 
-            # Classes ko function ke andar load kar rahe hain taaki startup crash na ho
-            PythonActivity = autoclass('org.kivy.android.PythonActivity')
-            AdRequest = autoclass('com.google.android.gms.ads.AdRequest$Builder')
-            InterstitialAd = autoclass('com.google.android.gms.ads.InterstitialAd')
-            AdListener = autoclass('com.google.android.gms.ads.AdListener')
-            MobileAds = autoclass('com.google.android.gms.ads.MobileAds')
-
-            class MyAdListener(PythonJavaClass):
-                __javainterfaces__ = ['com/google/android/gms/ads/AdListener']
-                __javacontext__ = 'app'
-                @java_method('()V')
-                def onAdLoaded(self): toast("Ad Ready!")
-                @java_method('(I)V')
-                def onAdFailedToLoad(self, code): print(f"Error {code}")
-
-            # Initialize
-            MobileAds.initialize(PythonActivity.mActivity)
-            self.load_ad_logic()
-            
-        except Exception as e:
-            error_msg = f"Setup Error: {str(e)}"
-            Clipboard.copy(error_msg)
-            toast("Ads setup failed. Error copied.")
-
-    def load_ad_logic(self):
-        global _interstitial_ad
-        from jnius import autoclass
-        PythonActivity = autoclass('org.kivy.android.PythonActivity')
-        _interstitial_ad = InterstitialAd(PythonActivity.mActivity)
-        _interstitial_ad.setAdUnitId(TEST_ID)
-        _interstitial_ad.setAdListener(MyAdListener())
-        _interstitial_ad.loadAd(AdRequest().build())
-
-    def handle_click(self):
-        self.count += 1
-        self.root.ids.counter.text = f"Clicks: {self.count}"
-        if self.count % 3 == 0:
-            self.show_ad()
-
-    def show_ad(self):
-        if _interstitial_ad and _interstitial_ad.isLoaded():
-            _interstitial_ad.show()
-            self.load_ad_logic() # Reload
+        # Create popup MDCard
         else:
-            toast("Ad not ready or not supported on this build")
+            self.m = MDCard(
+                size_hint=(0.2,0.1),
+                pos_hint={'center_x': 0.5, 'center_y': 0.5},
+                on_press=self.dismiss_popup,
+                md_bg_color=(1, 1, 1, 1),
+                elevation=10000000,
+                radius=[24],
+                orientation="vertical",
+                padding="12dp",
+                opacity=0
+            )
+            self.anim()
+            self.m.add_widget(MDLabel(text=f"{args}", halign="center", font_style="H6"))
+            self.root.add_widget(self.m)
 
-if __name__ == "__main__":
-    MainApp().run()
-    
+    def dismiss_popup(self, *args):
+        if hasattr(self, 'm') and self.m and self.m.parent:
+            self.root.remove_widget(self.m)
+            self.m = None  # cleanup
+            
+    def anim(self):
+            anim=Animation(size_hint=(0.6,0.4),opacity=1,duration=0.1)   
+            anim.start(self.m)
+            
+
+GridCardApp().run()
