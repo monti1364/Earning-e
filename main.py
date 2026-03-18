@@ -1,60 +1,70 @@
 from kivymd.app import MDApp
 from kivy.lang import Builder
-from kivy.uix.screenmanager import Screen, ScreenManager
 from kivy.utils import platform
 from kivy.clock import Clock
 from kivy.core.clipboard import Clipboard
 from kivymd.toast import toast
 
-# Android specific imports for 19.8.0
+# --- ANDROID IMPORTS ---
 if platform == "android":
-    from jnius import autoclass, PythonJavaClass, java_method
-    from android.runnable import run_on_ui_thread
-    
-    # 19.8.0 mein paths alag hote hain (interstitial word beech mein nahi hota)
-    PythonActivity = autoclass('org.kivy.android.PythonActivity')
-    AdRequest = autoclass('com.google.android.gms.ads.AdRequest$Builder')
-    InterstitialAd = autoclass('com.google.android.gms.ads.InterstitialAd')
-    AdListener = autoclass('com.google.android.gms.ads.AdListener')
-    MobileAds = autoclass('com.google.android.gms.ads.MobileAds')
+    try:
+        from jnius import autoclass, PythonJavaClass, java_method
+        from android.runnable import run_on_ui_thread
+        
+        # Fundamental Android Classes
+        PythonActivity = autoclass('org.kivy.android.PythonActivity')
+        # AdMob Classes (19.8.0 structure)
+        AdRequest = autoclass('com.google.android.gms.ads.AdRequest$Builder')
+        InterstitialAd = autoclass('com.google.android.gms.ads.InterstitialAd')
+        AdListener = autoclass('com.google.android.gms.ads.AdListener')
+        MobileAds = autoclass('com.google.android.gms.ads.MobileAds')
+    except Exception as e:
+        Clipboard.copy(str(e))
 else:
     def run_on_ui_thread(func): return func
 
+# --- GLOBAL VARIABLES ---
 _interstitial_ad = None
 TEST_ID = "ca-app-pub-3940256099942544/1033173712"
 
-# 19.8.0 mein AdListener ek Interface hai (Isse crash nahi hoga)
+# --- LISTENER ---
 class MyAdListener(PythonJavaClass):
     __javainterfaces__ = ['com/google/android/gms/ads/AdListener']
     __javacontext__ = 'app'
 
     @java_method('()V')
     def onAdLoaded(self):
-        Clock.schedule_once(lambda x: toast("Ad Ready to Show!"))
+        Clock.schedule_once(lambda x: toast("Ad Ready!"))
 
     @java_method('(I)V')
     def onAdFailedToLoad(self, errorCode):
-        # Error codes: 0=Internal, 1=Invalid, 2=Network, 3=No Fill
-        err = f"Load Failed! Code: {errorCode}"
-        Clipboard.copy(err)
-        Clock.schedule_once(lambda x: toast(err))
+        msg = f"Failed to load: Error Code {errorCode}"
+        Clipboard.copy(msg)
+        Clock.schedule_once(lambda x: toast(msg))
+
+# --- AD FUNCTIONS ---
+@run_on_ui_thread
+def initialize_ads():
+    try:
+        # 19.8.0 mein initialize sirf context maangta hai
+        MobileAds.initialize(PythonActivity.mActivity)
+    except Exception as e:
+        Clipboard.copy("Init Error: " + str(e))
 
 @run_on_ui_thread
 def load_interstitial():
     global _interstitial_ad
     try:
-        activity = PythonActivity.mActivity
-        MobileAds.initialize(activity)
-        
-        # 19.8.0 loading style
-        _interstitial_ad = InterstitialAd(activity)
+        # Create Interstitial instance
+        _interstitial_ad = InterstitialAd(PythonActivity.mActivity)
         _interstitial_ad.setAdUnitId(TEST_ID)
         _interstitial_ad.setAdListener(MyAdListener())
         
+        # Build and Load Request
         builder = AdRequest()
         _interstitial_ad.loadAd(builder.build())
     except Exception as e:
-        Clipboard.copy("Load Exception: " + str(e))
+        Clipboard.copy("Load Error: " + str(e))
 
 @run_on_ui_thread
 def show_interstitial():
@@ -63,45 +73,45 @@ def show_interstitial():
         if _interstitial_ad and _interstitial_ad.isLoaded():
             _interstitial_ad.show()
         else:
-            toast("Ad not loaded yet. Loading now...")
+            toast("Not ready, loading now...")
             load_interstitial()
     except Exception as e:
-        Clipboard.copy("Show Exception: " + str(e))
+        Clipboard.copy("Show Error: " + str(e))
 
-# --- UI ---
-kv = '''
+# --- APP CLASS ---
+class MainApp(MDApp):
+    def build(self):
+        self.count = 0
+        return Builder.load_string('''
 MDScreen:
     MDFloatLayout:
         md_bg_color: 1, 1, 1, 1
         MDRaisedButton:
-            text: "SHOW AD (3rd Click)"
+            text: "SHOW INTERSTITIAL"
             pos_hint: {"center_x": .5, "center_y": .5}
             on_release: app.handle_click()
         MDLabel:
-            id: lbl
+            id: counter
             text: "Clicks: 0"
             halign: "center"
             pos_hint: {"center_y": .4}
-'''
-
-class TestApp(MDApp):
-    def build(self):
-        self.count = 0
-        return Builder.load_string(kv)
+''')
 
     def on_start(self):
         if platform == "android":
-            load_interstitial()
+            # Initialize MobileAds first, then load after a small delay
+            initialize_ads()
+            Clock.schedule_once(lambda x: load_interstitial(), 2)
 
     def handle_click(self):
         self.count += 1
-        self.root.ids.lbl.text = f"Clicks: {self.count}"
+        self.root.ids.counter.text = f"Clicks: {self.count}"
         if self.count % 3 == 0:
             if platform == "android":
                 show_interstitial()
             else:
-                toast("Works only on Android")
+                toast("Android only feature")
 
-if __name__ == '__main__':
-    TestApp().run()
+if __name__ == "__main__":
+    MainApp().run()
     
