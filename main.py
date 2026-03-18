@@ -5,136 +5,103 @@ from kivy.utils import platform
 from kivy.clock import Clock
 from kivy.core.clipboard import Clipboard
 from kivymd.toast import toast
-import threading
 
-# Android specific imports
+# Android specific imports for 19.8.0
 if platform == "android":
     from jnius import autoclass, PythonJavaClass, java_method
     from android.runnable import run_on_ui_thread
     
-    # Java Classes
+    # 19.8.0 mein paths alag hote hain (interstitial word beech mein nahi hota)
     PythonActivity = autoclass('org.kivy.android.PythonActivity')
-    AdRequest = autoclass('com.google.android.gms.ads.AdRequest')
-    AdRequestBuilder = autoclass('com.google.android.gms.ads.AdRequest$Builder')
-    InterstitialAd = autoclass('com.google.android.gms.ads.interstitial.InterstitialAd')
-    InterstitialAdLoadCallback = autoclass('com.google.android.gms.ads.interstitial.InterstitialAdLoadCallback')
+    AdRequest = autoclass('com.google.android.gms.ads.AdRequest$Builder')
+    InterstitialAd = autoclass('com.google.android.gms.ads.InterstitialAd')
+    AdListener = autoclass('com.google.android.gms.ads.AdListener')
     MobileAds = autoclass('com.google.android.gms.ads.MobileAds')
 else:
-    # Desktop par error na aaye isliye dummy decorator
-    def run_on_ui_thread(func):
-        return func
+    def run_on_ui_thread(func): return func
 
-# --- GLOBAL AD LOGIC ---
 _interstitial_ad = None
-TEST_ID = "ca-app-pub-3940256099942544/1033173712" # Google Test Interstitial ID
+TEST_ID = "ca-app-pub-3940256099942544/1033173712"
 
-class MyAdLoadCallback(PythonJavaClass):
-    __javainterfaces__ = ['com/google/android/gms/ads/interstitial/InterstitialAdLoadCallback']
+# 19.8.0 mein AdListener ek Interface hai (Isse crash nahi hoga)
+class MyAdListener(PythonJavaClass):
+    __javainterfaces__ = ['com/google/android/gms/ads/AdListener']
     __javacontext__ = 'app'
 
-    @java_method('(Lcom/google/android/gms/ads/interstitial/InterstitialAd;)V')
-    def onAdLoaded(self, interstitialAd):
-        global _interstitial_ad
-        _interstitial_ad = interstitialAd
-        Clock.schedule_once(lambda x: toast("Ad Loaded & Ready"))
+    @java_method('()V')
+    def onAdLoaded(self):
+        Clock.schedule_once(lambda x: toast("Ad Ready to Show!"))
 
-    @java_method('(Lcom/google/android/gms/ads/LoadAdError;)V')
-    def onAdFailedToLoad(self, loadAdError):
-        global _interstitial_ad
-        _interstitial_ad = None
-        error_msg = str(loadAdError.toString())
-        Clipboard.copy(error_msg)
-        Clock.schedule_once(lambda x: toast("Ad Load Failed (Copied to Clipboard)"))
+    @java_method('(I)V')
+    def onAdFailedToLoad(self, errorCode):
+        # Error codes: 0=Internal, 1=Invalid, 2=Network, 3=No Fill
+        err = f"Load Failed! Code: {errorCode}"
+        Clipboard.copy(err)
+        Clock.schedule_once(lambda x: toast(err))
 
 @run_on_ui_thread
 def load_interstitial():
+    global _interstitial_ad
     try:
         activity = PythonActivity.mActivity
-        # Initialize Mobile Ads (Sirf ek baar zaroori hai)
         MobileAds.initialize(activity)
         
-        builder = AdRequestBuilder()
-        request = builder.build()
+        # 19.8.0 loading style
+        _interstitial_ad = InterstitialAd(activity)
+        _interstitial_ad.setAdUnitId(TEST_ID)
+        _interstitial_ad.setAdListener(MyAdListener())
         
-        callback = MyAdLoadCallback()
-        InterstitialAd.load(activity, TEST_ID, request, callback)
+        builder = AdRequest()
+        _interstitial_ad.loadAd(builder.build())
     except Exception as e:
-        Clipboard.copy("Load Error: " + str(e))
-        print(str(e))
+        Clipboard.copy("Load Exception: " + str(e))
 
 @run_on_ui_thread
 def show_interstitial():
     global _interstitial_ad
     try:
-        if _interstitial_ad:
-            _interstitial_ad.show(PythonActivity.mActivity)
-            _interstitial_ad = None # Reset after showing
-            load_interstitial()     # Load next one
+        if _interstitial_ad and _interstitial_ad.isLoaded():
+            _interstitial_ad.show()
         else:
             toast("Ad not loaded yet. Loading now...")
             load_interstitial()
     except Exception as e:
-        Clipboard.copy("Show Error: " + str(e))
-        print(str(e))
+        Clipboard.copy("Show Exception: " + str(e))
 
-# --- KIVY UI ---
+# --- UI ---
 kv = '''
-ScreenManager:
-    MainScreen:
-
-<MainScreen>:
-    name: 'main'
+MDScreen:
     MDFloatLayout:
         md_bg_color: 1, 1, 1, 1
-        
-        MDLabel:
-            text: "Interstitial Ad Test"
-            halign: "center"
-            pos_hint: {"center_y": .7}
-            font_style: "H5"
-            
         MDRaisedButton:
-            text: "SHOW AD (Every 3rd Click)"
+            text: "SHOW AD (3rd Click)"
             pos_hint: {"center_x": .5, "center_y": .5}
-            size_hint_x: .7
-            on_release: app.handle_ad_click()
-            
+            on_release: app.handle_click()
         MDLabel:
-            id: counter_lbl
+            id: lbl
             text: "Clicks: 0"
             halign: "center"
             pos_hint: {"center_y": .4}
 '''
 
-class MainScreen(Screen):
-    pass
-
-class TestAdApp(MDApp):
+class TestApp(MDApp):
     def build(self):
-        try:
-            self.click_count = 0
-            return Builder.load_string(kv)
-        except Exception as e:
-            Clipboard.copy("Build Error: " + str(e))
+        self.count = 0
+        return Builder.load_string(kv)
 
     def on_start(self):
-        # App start hote hi ad load karna shuru karein
         if platform == "android":
             load_interstitial()
 
-    def handle_ad_click(self):
-        try:
-            self.click_count += 1
-            self.root.get_screen('main').ids.counter_lbl.text = f"Clicks: {self.click_count}"
-            
-            if self.click_count % 3 == 0:
-                if platform == "android":
-                    show_interstitial()
-                else:
-                    toast("Ad only works on Android!")
-        except Exception as e:
-            Clipboard.copy("Click Logic Error: " + str(e))
+    def handle_click(self):
+        self.count += 1
+        self.root.ids.lbl.text = f"Clicks: {self.count}"
+        if self.count % 3 == 0:
+            if platform == "android":
+                show_interstitial()
+            else:
+                toast("Works only on Android")
 
 if __name__ == '__main__':
-    TestAdApp().run()
+    TestApp().run()
     
