@@ -3,22 +3,25 @@ from kivy.lang import Builder
 from kivy.utils import platform
 from kivy.clock import Clock
 from kivymd.toast import toast
+from kivy.core.clipboard import Clipboard
 
 if platform == "android":
-    from jnius import autoclass, PythonJavaClass, java_method
-    from android.runnable import run_on_ui_thread
-    
-    PythonActivity = autoclass('org.kivy.android.PythonActivity')
-    AdRequest = autoclass('com.google.android.gms.ads.AdRequest$Builder')
-    InterstitialAd = autoclass('com.google.android.gms.ads.interstitial.InterstitialAd')
-    # Naye version mein ye path zaroori hai
-    MobileAds = autoclass('com.google.android.gms.ads.MobileAds')
+    try:
+        from jnius import autoclass, PythonJavaClass, java_method
+        from android.runnable import run_on_ui_thread
+        
+        PythonActivity = autoclass('org.kivy.android.PythonActivity')
+        AdRequest = autoclass('com.google.android.gms.ads.AdRequest$Builder')
+        InterstitialAd = autoclass('com.google.android.gms.ads.interstitial.InterstitialAd')
+        # Naye version mein ye path zaroori hai
+        MobileAds = autoclass('com.google.android.gms.ads.MobileAds')   
+        
+    except Exception as e:
+        Clipboard.copy(str(e))    
 else:
     def run_on_ui_thread(func): return func
-
-_interstitial_ad = None
-
-# --- FIX: Hum LoadCallback ko direct class se handle karenge ---
+    _interstitial_ad = None
+# --- FIX: Hum LoadCallback ko direct class se handle     karenge ---
 class AdHandler:
     @staticmethod
     def on_load_success(ad):
@@ -28,6 +31,7 @@ class AdHandler:
 
     @staticmethod
     def on_load_error(error):
+        Clipboard.copy(f"Ad Load Failed: {error.getMessage()}")        
         print(f"Ad Load Failed: {error.getMessage()}")
 
 @run_on_ui_thread
@@ -51,6 +55,7 @@ def load_ad_v22():
         # Interface crash fix karne ka yehi ek rasta hai Pyjnius mein.
         
     except Exception as e:
+        Clipboard.copy(str(e))
         print(f"Error: {e}")
 
 class MainApp(MDApp):
